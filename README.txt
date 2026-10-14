@@ -1,0 +1,1 @@
+Sube todos estos archivos a la raíz de un repositorio de GitHub. En Settings > Pages selecciona Deploy from a branch, main, /(root). Abre la URL HTTPS y en Safari selecciona Compartir > Añadir a pantalla de inicio. La primera apertura requiere internet para las librerías 3D; algunas funciones pueden requerir conexión incluso después.

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>STL Viewer</title>
+<style>
+:root{color-scheme:dark;--bg:#000;--panel:#171719;--line:#303034;--text:#f5f5f7;--muted:#a0a0a8;--accent:#d9d9df}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif}
+#viewer{position:fixed;inset:0;touch-action:none}canvas{display:block}
+.top{position:fixed;top:env(safe-area-inset-top);left:0;right:0;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;pointer-events:none}
+.top>*{pointer-events:auto}.title{min-width:0}.title b{display:block;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:58vw}.title small{font-size:12px;color:var(--muted)}
+button,.pill{border:1px solid var(--line);background:rgba(35,35,38,.9);color:var(--text);border-radius:999px;min-height:43px;padding:10px 16px;font:inherit;font-size:14px;cursor:pointer;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+button:active{opacity:.7}.primary{background:#ededf0;color:#111;border-color:#ededf0;font-weight:650}
+.actions{position:fixed;right:14px;top:calc(env(safe-area-inset-top) + 86px);display:flex;flex-direction:column;gap:9px}
+.actions button{width:44px;height:44px;padding:0;font-size:20px}
+.bottom{position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);background:rgba(23,23,25,.94);border:1px solid var(--line);border-radius:25px;padding:13px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;gap:8px;margin:2px 0 13px}.stats strong{display:block;font-size:15px;font-variant-numeric:tabular-nums}.stats span{font-size:11px;color:var(--muted)}
+.toolbar{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}.toolbar button{flex:1;white-space:nowrap;padding:10px 12px;font-size:12px;min-width:0}
+.toolbar button.active{background:#e9e9ec;color:#101014}
+#empty{position:fixed;left:25px;right:25px;top:42%;transform:translateY(-50%);text-align:center;pointer-events:none}#empty .symbol{font-size:55px;margin-bottom:16px}#empty h2{margin:0 0 8px;font-size:23px}#empty p{color:var(--muted);font-size:14px;line-height:1.5;margin:0}
+#drop{position:fixed;inset:10px;border:2px dashed #ddd;border-radius:25px;background:#000b;display:none;place-items:center;font-size:22px;pointer-events:none}#drop.show{display:grid}
+#toast{position:fixed;top:calc(env(safe-area-inset-top) + 73px);left:50%;transform:translateX(-50%);padding:9px 15px;border-radius:999px;background:#34343a;font-size:12px;max-width:85vw;text-align:center;display:none;z-index:10}
+input[type=file]{display:none}
+.tools{position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 132px);background:#1c1c20f2;border:1px solid var(--line);border-radius:22px;padding:14px;max-height:45vh;overflow:auto;display:none;z-index:3}.tools.show{display:block}.tools h3{margin:0 0 12px;font-size:15px}.tools .group{display:flex;gap:7px;flex-wrap:wrap;margin:9px 0}.tools button{min-height:37px;font-size:12px;padding:8px 12px}.tools button.active{background:#eee;color:#111}.tools label{font-size:12px;color:var(--muted)}.tools input[type=range]{width:100%;accent-color:#ddd}.status{font-size:12px;color:#aaa;margin-top:7px}.fitstatus{margin-top:8px;text-align:center;font-size:12px;color:#aaa}.fitstatus.good{color:#92d7a7}.fitstatus.bad{color:#ff9b9b}
+@media(max-width:380px){.toolbar button{font-size:11px;padding:10px 7px}.stats strong{font-size:13px}}
+</style>
+<style>
+/* Herramientas compactas: el modelo queda visible mientras se utilizan. */
+.tools{left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 137px);max-height:none;height:auto;overflow:visible;padding:9px 11px 11px;border-radius:20px;background:rgba(25,25,28,.96)}
+.tooltabs{display:flex;gap:5px;margin-bottom:7px}
+.tools .tooltabs button{flex:1;min-width:0;padding:7px 5px;min-height:32px;font-size:12px;background:#303034}
+.tools .tooltabs button.active{background:#e8e8ec;color:#111}
+.toolpage{display:none;min-height:41px}.toolpage.active{display:block}
+.tools .group{margin:0;display:flex;gap:6px;flex-wrap:nowrap;align-items:center}
+.tools .group button{flex:1;min-width:0;padding:8px 4px;font-size:11px;min-height:35px;white-space:nowrap}
+.tools .status{margin:5px 0 0;font-size:11px}
+.tools input[type=range]{margin:9px 0 0;width:100%}
+#sectionInfo{flex:1;min-width:0;margin:0}
+@media(max-width:370px){.tools .group button{font-size:10px}}
+</style></head>
+<body>
+<div id="viewer"></div>
+<div class="top"><div class="title"><b id="filename">Visor 3D</b><small id="subtitle">STL · 3MF · STEP · DXF</small></div><button class="primary" id="openBtn">＋ Abrir archivo</button></div>
+<div class="actions"><button id="fitBtn" title="Centrar modelo">⌗</button><button id="plusBtn" title="Acercar">＋</button><button id="minusBtn" title="Alejar">−</button><button id="shotBtn" title="Guardar imagen">↧</button></div>
+<div id="empty"><div class="symbol">⬡</div><h2>Explora tus modelos 3D</h2><p>Abre un archivo .stl, .3mf, .step, .stp o .dxf para girarlo, ampliarlo<br>y revisar cada detalle.</p></div>
+<div class="bottom"><div class="stats"><div><strong id="x">—</strong><span>Ancho (X)</span></div><div><strong id="y">—</strong><span>Alto (Y)</span></div><div><strong id="z">—</strong><span>Profundidad (Z)</span></div></div><div class="toolbar"><button id="gridBtn" class="active">Placa</button><button id="colorBtn">Color</button><button id="resetBtn">Restablecer</button><button id="toolsBtn">Herramientas</button></div><div id="fitStatus" class="fitstatus">180 × 180 × 180 mm</div></div>
+<div class="tools" id="tools">
+<div class="tooltabs"><button data-tab="views" class="active">Vistas</button><button data-tab="measure">Medir</button><button data-tab="section">Corte</button><button data-tab="rotate">Girar</button></div>
+<div class="toolpage active" data-page="views"><div class="group"><button data-view="iso">3D</button><button data-view="top">Superior</button><button data-view="front">Frontal</button><button data-view="side">Lateral</button></div></div>
+<div class="toolpage" data-page="measure"><div class="group"><button id="measureBtn">Medir dos puntos</button><button id="clearMeasure">Borrar medida</button></div><div id="measureInfo" class="status">Toca dos puntos sobre el modelo</div></div>
+<div class="toolpage" data-page="section"><div class="group"><button id="sectionBtn">Activar corte</button><span id="sectionInfo" class="status">Corte desactivado</span></div><input type="range" id="sectionRange" min="0" max="100" value="100" disabled></div>
+<div class="toolpage" data-page="rotate"><div class="group"><button data-rotate="x">Eje X</button><button data-rotate="y">Eje Y</button><button data-rotate="z">Eje Z</button><button id="orientReset">Reiniciar</button></div></div>
+</div>
+<div id="drop">Suelta tu archivo 3D</div><div id="toast"></div><input id="file" type="file" >
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {STLLoader} from 'three/addons/loaders/STLLoader.js';
+import {ThreeMFLoader} from 'three/addons/loaders/3MFLoader.js';
+const $=id=>document.getElementById(id), host=$('viewer');
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x000000);
+const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.01,100000);
+camera.position.set(140,110,160);
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.localClippingEnabled=true;
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;host.appendChild(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.08;controls.screenSpacePanning=true;controls.minDistance=.05;controls.maxDistance=100000;
+scene.add(new THREE.HemisphereLight(0xffffff,0x44445a,2.4));
+const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(3,7,6);scene.add(light);
+const fill=new THREE.DirectionalLight(0x9999ff,1.1);fill.position.set(-4,2,-5);scene.add(fill);
+let mesh=null,grid=null,modelSize=100,colorIndex=0;let measuring=false,measurePoints=[],measureMarkers=[],measureLine=null,sectionOn=false;const sectionPlane=new THREE.Plane(new THREE.Vector3(0,-1,0),100000);const raycaster=new THREE.Raycaster();const pointer=new THREE.Vector2();
+const colors=[0xd9d9e0,0x8bb8e8,0xe4b879,0x92c9a6,0xd39ecf];
+// Placa de impresión inspirada en la Bambu Lab A1 Mini (180 × 180 mm).
+const BED=180;
+function makeGrid(){
+ if(grid){scene.remove(grid);grid.traverse(o=>{o.geometry?.dispose();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose())}})}
+ grid=new THREE.Group();
+ // Contorno físico: esquinas recortadas y pequeña lengüeta frontal de extracción.
+ // La zona imprimible sigue siendo 180 x 180 mm.
+ const shape=new THREE.Shape();
+ shape.moveTo(-85,-90);shape.lineTo(85,-90);shape.lineTo(90,-85);
+ shape.lineTo(90,85);shape.lineTo(85,90);shape.lineTo(28,90);
+ shape.lineTo(25,96);shape.lineTo(-25,96);shape.lineTo(-28,90);
+ shape.lineTo(-85,90);shape.lineTo(-90,85);shape.lineTo(-90,-85);shape.closePath();
+ const geometry=new THREE.ExtrudeGeometry(shape,{depth:1.3,bevelEnabled:true,bevelThickness:.25,bevelSize:.35,bevelSegments:1,steps:1,curveSegments:2});
+ // Shape XY -> superficie XZ; el frente de la placa queda hacia Z positivo.
+ geometry.rotateX(Math.PI/2);geometry.translate(0,-.35,0);
+ const plate=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0x393d40,metalness:.22,roughness:.87,side:THREE.DoubleSide}));
+ grid.add(plate);
+ // Superficie texturizada tipo PEI con impresión discreta, generada localmente.
+ const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=1024;
+ const ctx=canvas.getContext('2d');
+ ctx.fillStyle='#34383b';ctx.fillRect(0,0,1024,1024);
+ // Grano determinista: no depende de recursos externos.
+ for(let i=0;i<22000;i++){
+  const x=(i*73.137)%1024,y=(i*179.471)%1024;
+  ctx.fillStyle=i%3===0?'rgba(215,218,216,.085)':'rgba(0,0,0,.12)';
+  ctx.fillRect(x,y,1.3,1.3);
+ }
+ ctx.strokeStyle='rgba(195,203,207,.15)';ctx.lineWidth=1;
+ for(let n=0;n<=18;n++){const t=24+n*(976/18);ctx.beginPath();ctx.moveTo(t,24);ctx.lineTo(t,1000);ctx.stroke();ctx.beginPath();ctx.moveTo(24,t);ctx.lineTo(1000,t);ctx.stroke()}
+ ctx.strokeStyle='rgba(210,218,222,.55)';ctx.lineWidth=3;ctx.strokeRect(24,24,976,976);
+ ctx.fillStyle='#d0d6d8';ctx.textAlign='left';ctx.font='bold 33px Arial';ctx.fillText('Bambu Lab',65,91);
+ ctx.font='24px Arial';ctx.fillStyle='#aeb7ba';ctx.fillText('A1 mini  |  180 × 180 mm',65,128);
+ ctx.textAlign='right';ctx.font='22px Arial';ctx.fillText('TEXTURED PEI',950,940);
+ const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace;tex.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+ const surface=new THREE.Mesh(new THREE.PlaneGeometry(179,179),new THREE.MeshStandardMaterial({map:tex,metalness:.12,roughness:.94,polygonOffset:true,polygonOffsetFactor:-1}));
+ surface.rotation.x=-Math.PI/2;surface.position.y=.035;grid.add(surface);
+ // Silueta y bordes de la chapa.
+ const outlinePoints=[[-85,-90],[85,-90],[90,-85],[90,85],[85,90],[28,90],[25,96],[-25,96],[-28,90],[-85,90],[-90,85],[-90,-85]];
+ const outline=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(outlinePoints.map(([x,z])=>new THREE.Vector3(x,.09,z))),new THREE.LineBasicMaterial({color:0xadb5b8,transparent:true,opacity:.9}));
+ grid.add(outline);
+ // Pequeñas marcas de referencia en el borde trasero.
+ const marks=[];
+ for(let x=-70;x<=70;x+=10){marks.push(x,.11,-89,x,.11,-(x%50===0?85:87))}
+ const markGeo=new THREE.BufferGeometry();markGeo.setAttribute('position',new THREE.Float32BufferAttribute(marks,3));
+ grid.add(new THREE.LineSegments(markGeo,new THREE.LineBasicMaterial({color:0xc2c9cd,transparent:true,opacity:.65})));
+ scene.add(grid);grid.visible=$('gridBtn').classList.contains('active');
+}
+makeGrid();
+function toast(s){$('toast').textContent=s;$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',2800)}
+function fit(){if(!mesh)return;const box=new THREE.Box3().setFromObject(mesh),center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3());const radius=Math.max(size.length()*.5,BED*.72);const dist=radius/Math.sin(THREE.MathUtils.degToRad(camera.fov*.5))*1.45;controls.target.set(0,Math.max(10,center.y*.6),0);camera.position.copy(controls.target).add(new THREE.Vector3(dist*.7,dist*.55,dist*.8));camera.near=Math.max(.001,dist/10000);camera.far=Math.max(1000,dist*100);camera.updateProjectionMatrix();controls.minDistance=Math.max(.001,radius*.08);controls.maxDistance=dist*25;controls.update()}
+
+function dxfGroup(doc){
+ const group=new THREE.Group(),material=new THREE.LineBasicMaterial({color:0xd9d9e0});
+ const entities=doc.entities||[];let count=0;
+ function line(points,closed=false){if(points.length<2)return;const p=points.map(v=>new THREE.Vector3(v.x||0,v.y||0,v.z||0));if(closed)p.push(p[0].clone());group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(p),material));count++}
+ function curve(cx,cy,r,start,end){const pts=[];for(let i=0;i<=96;i++){const a=start+(end-start)*i/96;pts.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)})}line(pts)}
+ for(const e of entities){try{
+  if(e.type==='LINE')line(e.vertices||[e.start,e.end].filter(Boolean));
+  else if(e.type==='LWPOLYLINE'||e.type==='POLYLINE')line(e.vertices||[],!!(e.shape||e.closed));
+  else if(e.type==='CIRCLE')curve(e.center.x,e.center.y,e.radius,0,Math.PI*2);
+  else if(e.type==='ARC'){let a=(e.startAngle||0)*Math.PI/180,b=(e.endAngle||360)*Math.PI/180;if(b<a)b+=Math.PI*2;curve(e.center.x,e.center.y,e.radius,a,b)}
+  else if(e.type==='POINT')line([{x:e.position.x-.3,y:e.position.y},{x:e.position.x+.3,y:e.position.y}]);
+  else if(e.type==='SPLINE'&&e.controlPoints?.length>1){const pts=new THREE.CatmullRomCurve3(e.controlPoints.map(v=>new THREE.Vector3(v.x||0,v.y||0,v.z||0))).getPoints(100);line(pts)}
+ }catch(err){console.warn('Entidad DXF omitida',e.type,err)}}
+ if(!count)throw Error('DXF sin entidades geométricas compatibles');
+ return group
+}
+async function convertFile(file,buffer){
+ const ext=file.name.split('.').pop().toLowerCase();
+ if(ext==='stl'){const geo=new STLLoader().parse(buffer);if(!geo.attributes.position?.count)throw Error('STL sin triángulos');if(!geo.attributes.normal)geo.computeVertexNormals();return new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:colors[colorIndex],metalness:.12,roughness:.62,side:THREE.DoubleSide}))}
+ if(ext==='3mf'){const loader=new ThreeMFLoader();return loader.parse(buffer)}
+ if(ext==='dxf'){const mod=await import('https://esm.sh/dxf-parser@1.1.2');const Parser=mod.default?.default||mod.default||mod.DxfParser;const doc=new Parser().parseSync(new TextDecoder().decode(buffer));return dxfGroup(doc)}
+ if(ext==='step'||ext==='stp'){
+   // occt-import-js is a classic Emscripten UMD bundle, not an ES module.
+   // Load as a regular script so Safari can access its global factory.
+   if(!window.occtimportjs){
+     await new Promise((resolve,reject)=>{
+       const script=document.createElement('script');
+       script.src='https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.js';
+       script.onload=resolve;script.onerror=()=>reject(Error('No se pudo cargar el lector STEP. Comprueba internet.'));
+       document.head.appendChild(script);
+     });
+   }
+   const factory=window.occtimportjs||window.occtImportJs;
+   if(typeof factory!=='function')throw Error('Lector STEP no disponible');
+   const occt=await factory({locateFile:(name)=>'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/'+name});
+   const result=occt.ReadStepFile(new Uint8Array(buffer),{});
+   if(!result.success||!result.meshes?.length)throw Error('No se pudo convertir el STEP');
+   const group=new THREE.Group();
+   for(const item of result.meshes){
+     const a=item.attributes,geo=new THREE.BufferGeometry();
+     geo.setAttribute('position',new THREE.Float32BufferAttribute(a.position.array,3));
+     if(a.normal?.array)geo.setAttribute('normal',new THREE.Float32BufferAttribute(a.normal.array,3));
+     else geo.computeVertexNormals();
+     if(item.index?.array)geo.setIndex(item.index.array);
+     const col=item.color?new THREE.Color().setRGB(...item.color):new THREE.Color(colors[colorIndex]);
+     group.add(new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:col,metalness:.1,roughness:.65,side:THREE.DoubleSide})));
+   }return group
+ }
+ throw Error('Formato no compatible')
+}
+async function load(file){
+ if(!file)return;
+ if(!/\.(stl|3mf|step|stp|dxf)$/i.test(file.name)){toast('Selecciona STL, 3MF, STEP, STP o DXF');return}
+ $('subtitle').textContent='Abriendo modelo…';
+ try{
+  const buffer=await file.arrayBuffer();
+  const model=await convertFile(file,buffer);
+  model.updateMatrixWorld(true);const originalBox=new THREE.Box3().setFromObject(model);
+  if(originalBox.isEmpty())throw Error('El archivo no contiene geometría visible');
+  const size=originalBox.getSize(new THREE.Vector3());
+  // Los formatos CAD/impresión usan normalmente Z como eje vertical.
+  // Convertimos Z hacia arriba en la escena y apoyamos la base sobre la placa.
+  model.rotation.x=-Math.PI/2;
+  model.updateMatrixWorld(true);
+  const uprightBox=new THREE.Box3().setFromObject(model);
+  const uprightCenter=uprightBox.getCenter(new THREE.Vector3());
+  model.position.x-=uprightCenter.x;
+  model.position.z-=uprightCenter.z;
+  model.position.y-=uprightBox.min.y;
+  model.updateMatrixWorld(true);
+  if(mesh){scene.remove(mesh);mesh.traverse(o=>{o.geometry?.dispose();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose())}})}
+  mesh=model;scene.add(mesh);modelSize=Math.max(size.x,size.y,size.z,1);makeGrid();
+  const fmt=n=>n.toLocaleString('es-MX',{maximumFractionDigits:2})+' mm';
+  $('x').textContent=fmt(size.x);$('y').textContent=fmt(size.y);$('z').textContent=fmt(size.z);
+  $('filename').textContent=file.name;
+  $('subtitle').textContent=file.name.split('.').pop().toUpperCase()+' · unidades asumidas: mm';
+  $('empty').style.display='none';sectionOn=false;$('sectionBtn').classList.remove('active');$('sectionBtn').textContent='Activar corte';$('sectionRange').disabled=true;$('sectionRange').value=100;clearMeasurement();updateBounds();fit();toast('Modelo cargado');
+ }catch(e){console.error(e);toast('Error: '+e.message);$('subtitle').textContent='Error: '+e.message}
+}
+
+$('openBtn').onclick=()=>$('file').click();$('file').onchange=e=>{load(e.target.files[0]);e.target.value=''};
+$('fitBtn').onclick=fit;$('resetBtn').onclick=fit;
+function zoom(f){if(!mesh)return;const dir=camera.position.clone().sub(controls.target).multiplyScalar(f);camera.position.copy(controls.target).add(dir);controls.update()}
+$('plusBtn').onclick=()=>zoom(.75);$('minusBtn').onclick=()=>zoom(1.35);
+$('gridBtn').onclick=()=>{$('gridBtn').classList.toggle('active');grid.visible=$('gridBtn').classList.contains('active')};
+$('colorBtn').onclick=()=>{colorIndex=(colorIndex+1)%colors.length;if(mesh)mesh.traverse(o=>{if(o.isMesh&&o.material){for(const m of Array.isArray(o.material)?o.material:[o.material])m.color?.setHex(colors[colorIndex])}else if(o.isLine)o.material.color.setHex(colors[colorIndex])})};
+// Herramientas avanzadas, aisladas del lector de archivos.
+$('toolsBtn').onclick=()=>{$('tools').classList.toggle('show');$('toolsBtn').classList.toggle('active')};
+document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>{
+ document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b===btn));
+ document.querySelectorAll('[data-page]').forEach(pg=>pg.classList.toggle('active',pg.dataset.page===btn.dataset.tab));
+}));
+function closeToolPanel(){$('tools').classList.remove('show');$('toolsBtn').classList.remove('active')}
+document.querySelectorAll('[data-view], [data-rotate]').forEach(btn=>btn.addEventListener('click',()=>setTimeout(closeToolPanel,0)));
+$('measureBtn').addEventListener('click',()=>setTimeout(closeToolPanel,0));
+
+function bounds(){return mesh?new THREE.Box3().setFromObject(mesh):null}
+function updateBounds(){if(!mesh)return;const b=bounds(),v=b.getSize(new THREE.Vector3()),fmt=n=>n.toLocaleString('es-MX',{maximumFractionDigits:2})+' mm';$('x').textContent=fmt(v.x);$('y').textContent=fmt(v.y);$('z').textContent=fmt(v.z);const ok=v.x<=180.0001&&v.y<=180.0001&&v.z<=180.0001;$('fitStatus').textContent=ok?'✓ Cabe en el volumen 180 × 180 × 180 mm':'⚠ Excede el volumen de impresión de la A1 Mini';$('fitStatus').className='fitstatus '+(ok?'good':'bad');updateSection()}
+function settleOnBed(){if(!mesh)return;mesh.updateMatrixWorld(true);let b=bounds(),c=b.getCenter(new THREE.Vector3());mesh.position.x-=c.x;mesh.position.z-=c.z;mesh.position.y-=b.min.y;mesh.updateMatrixWorld(true);updateBounds()}
+function look(direction){if(!mesh)return;const b=bounds(),c=b.getCenter(new THREE.Vector3()),radius=Math.max(b.getSize(new THREE.Vector3()).length(),220);controls.target.copy(c);camera.position.copy(c).addScaledVector(direction.clone().normalize(),radius*1.7);camera.up.set(0,1,0);if(Math.abs(direction.y)>.9)camera.up.set(0,0,-1);camera.lookAt(c);controls.update()}
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{if(!mesh)return;const dirs={iso:new THREE.Vector3(1,1,1),top:new THREE.Vector3(0,1,.00001),front:new THREE.Vector3(0,.00001,1),side:new THREE.Vector3(1,.00001,0)};look(dirs[b.dataset.view])});
+document.querySelectorAll('[data-rotate]').forEach(b=>b.onclick=()=>{if(!mesh)return;mesh.rotateOnWorldAxis(new THREE.Vector3(...({x:[1,0,0],y:[0,1,0],z:[0,0,1]})[b.dataset.rotate]),Math.PI/2);settleOnBed();clearMeasurement()});
+$('orientReset').onclick=()=>{if(!mesh)return;mesh.rotation.set(-Math.PI/2,0,0);settleOnBed();clearMeasurement();fit()};
+function allMeshes(){const a=[];mesh?.traverse(o=>{if(o.isMesh)a.push(o)});return a}
+function updateSection(){if(!mesh)return;const b=bounds(),height=b.max.y-b.min.y,cut=b.min.y+height*Number($('sectionRange').value)/100;sectionPlane.constant=cut;for(const m of allMeshes()){const mats=Array.isArray(m.material)?m.material:[m.material];for(const mat of mats){mat.clippingPlanes=sectionOn?[sectionPlane]:[];mat.clipShadows=sectionOn;mat.needsUpdate=true}}$('sectionInfo').textContent=sectionOn?'Altura visible: '+(cut-b.min.y).toFixed(2)+' mm':'Corte desactivado'}
+$('sectionBtn').onclick=()=>{if(!mesh)return;sectionOn=!sectionOn;$('sectionBtn').classList.toggle('active',sectionOn);$('sectionBtn').textContent=sectionOn?'Desactivar corte':'Activar corte';$('sectionRange').disabled=!sectionOn;updateSection()};
+$('sectionRange').oninput=updateSection;
+function clearMeasurement(){measurePoints=[];for(const marker of measureMarkers){scene.remove(marker);marker.geometry.dispose();marker.material.dispose()}measureMarkers=[];if(measureLine){scene.remove(measureLine);measureLine.geometry.dispose();measureLine.material.dispose();measureLine=null}$('measureInfo').textContent='Toca dos puntos sobre el modelo'}
+$('clearMeasure').onclick=clearMeasurement;
+$('measureBtn').onclick=()=>{measuring=!measuring;$('measureBtn').classList.toggle('active',measuring);$('measureBtn').textContent=measuring?'Terminar medición':'Medir';controls.enabled=!measuring;if(measuring)clearMeasurement()};
+renderer.domElement.addEventListener('pointerup',e=>{if(!measuring||!mesh||e.pointerType==='touch'&&!e.isPrimary)return;const rect=renderer.domElement.getBoundingClientRect();pointer.set(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);raycaster.setFromCamera(pointer,camera);const hits=raycaster.intersectObjects(allMeshes(),false);if(!hits.length)return;if(measurePoints.length===2)clearMeasurement();const pt=hits[0].point.clone();measurePoints.push(pt);const r=Math.max(.5,modelSize*.008);const marker=new THREE.Mesh(new THREE.SphereGeometry(r,12,8),new THREE.MeshBasicMaterial({color:0xffb84c,depthTest:false}));marker.position.copy(pt);marker.renderOrder=10;scene.add(marker);measureMarkers.push(marker);if(measurePoints.length===2){const distance=measurePoints[0].distanceTo(measurePoints[1]);measureLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(measurePoints),new THREE.LineBasicMaterial({color:0xffb84c,depthTest:false}));measureLine.renderOrder=10;scene.add(measureLine);$('measureInfo').textContent='Distancia: '+distance.toFixed(3)+' mm'}else $('measureInfo').textContent='Selecciona el segundo punto'});
+$('shotBtn').onclick=()=>{if(!mesh){toast('Primero abre un modelo');return}renderer.render(scene,camera);renderer.domElement.toBlob(blob=>{if(!blob){toast('No se pudo crear la imagen');return}const f=new File([blob],'modelo-3d.png',{type:'image/png'});if(navigator.canShare?.({files:[f]})){navigator.share({files:[f]}).catch(()=>{})}else{const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='modelo-3d.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}},'image/png')};
+let drag=0;window.addEventListener('dragenter',e=>{e.preventDefault();drag++;$('drop').classList.add('show')});window.addEventListener('dragleave',e=>{e.preventDefault();drag=Math.max(0,drag-1);if(!drag)$('drop').classList.remove('show')});window.addEventListener('dragover',e=>e.preventDefault());window.addEventListener('drop',e=>{e.preventDefault();drag=0;$('drop').classList.remove('show');load(e.dataTransfer.files[0])});
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+</script>
+<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./service-worker.js").catch(console.warn))}</script>
+</body></html>
