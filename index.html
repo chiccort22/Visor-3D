@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <title>STL Viewer</title>
 <style>
 :root{color-scheme:dark;--bg:#000;--panel:#171719;--line:#303034;--text:#f5f5f7;--muted:#a0a0a8;--accent:#d9d9df}
@@ -38,12 +39,22 @@ input[type=file]{display:none}
 .tools input[type=range]{margin:9px 0 0;width:100%}
 #sectionInfo{flex:1;min-width:0;margin:0}
 @media(max-width:370px){.tools .group button{font-size:10px}}
+</style><style>
+@media(prefers-color-scheme:light){
+:root{color-scheme:light;--bg:#fff;--panel:#f7f7f9;--line:#d9d9df;--text:#17171a;--muted:#62626b;--accent:#282830}
+button,.pill{background:rgba(245,245,247,.94)}.primary{background:#202024;color:#fff;border-color:#202024}
+.bottom{background:rgba(249,249,251,.96)}.toolbar button.active{background:#25252a;color:#fff}
+.actions button{background:rgba(245,245,247,.95)}
+.tools{background:rgba(250,250,252,.97)}.tools .tooltabs button{background:#ededf0}.tools .tooltabs button.active,.tools button.active{background:#25252a;color:#fff}
+#drop{background:#fffb;border-color:#888}#toast{background:#e5e5e9;color:#17171a}
+.status,.fitstatus{color:#676771}
+}
 </style></head>
 <body>
 <div id="viewer"></div>
 <div class="top"><div class="title"><b id="filename">Visor 3D</b><small id="subtitle">STL · 3MF · STEP · DXF · SVG</small></div><button class="primary" id="openBtn">＋ Abrir archivo</button></div>
 <div class="actions"><button id="fitBtn" title="Centrar modelo">⌗</button><button id="plusBtn" title="Acercar">＋</button><button id="minusBtn" title="Alejar">−</button><button id="shotBtn" title="Guardar imagen">↧</button></div>
-<div id="empty"><div class="symbol">⬡</div><h2>Explora tus modelos 3D</h2><p>Abre un archivo .stl, .3mf, .step, .stp, .dxf o .svg para girarlo, ampliarlo<br>y revisar cada detalle.</p></div>
+<div id="empty"><div class="symbol">⬡</div><h2>Explora tus modelos 3D</h2><p>Abre un archivo .stl, .3mf, .step, .stp, .dxf, .svg o .lbrn2 para girarlo, ampliarlo<br>y revisar cada detalle.</p></div>
 <div class="bottom"><div class="stats"><div><strong id="x">—</strong><span>Ancho (X)</span></div><div><strong id="y">—</strong><span>Alto (Y)</span></div><div><strong id="z">—</strong><span>Profundidad (Z)</span></div></div><div class="toolbar"><button id="gridBtn" class="active">Placa</button><button id="colorBtn">Color</button><button id="resetBtn">Restablecer</button><button id="toolsBtn">Herramientas</button></div><div id="fitStatus" class="fitstatus">180 × 180 × 180 mm</div></div>
 <div class="tools" id="tools">
 <div class="tooltabs"><button data-tab="views" class="active">Vistas</button><button data-tab="measure">Medir</button><button data-tab="section">Corte</button><button data-tab="rotate">Girar</button></div>
@@ -64,14 +75,36 @@ const $=id=>document.getElementById(id), host=$('viewer');
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x000000);
 const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.01,100000);
 camera.position.set(140,110,160);
+const camera2D=new THREE.OrthographicCamera(-100,100,100,-100,.01,100000);
+camera2D.up.set(0,0,-1);
+let activeCamera=camera;
 const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.localClippingEnabled=true;
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;host.appendChild(renderer.domElement);
 const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.08;controls.screenSpacePanning=true;controls.minDistance=.05;controls.maxDistance=100000;
 scene.add(new THREE.HemisphereLight(0xffffff,0x44445a,2.4));
 const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(3,7,6);scene.add(light);
 const fill=new THREE.DirectionalLight(0x9999ff,1.1);fill.position.set(-4,2,-5);scene.add(fill);
-let mesh=null,grid=null,modelSize=100,colorIndex=0,isDXF=false;let measuring=false,measurePoints=[],measureMarkers=[],measureLine=null,sectionOn=false;const sectionPlane=new THREE.Plane(new THREE.Vector3(0,-1,0),100000);const raycaster=new THREE.Raycaster();const pointer=new THREE.Vector2();
+let mesh=null,grid=null,vectorGrid=null,modelSize=100,colorIndex=0,isDXF=false;let measuring=false,measurePoints=[],measureMarkers=[],measureLine=null,sectionOn=false;const sectionPlane=new THREE.Plane(new THREE.Vector3(0,-1,0),100000);const raycaster=new THREE.Raycaster();const pointer=new THREE.Vector2();
 const colors=[0xd9d9e0,0x8bb8e8,0xe4b879,0x92c9a6,0xd39ecf];
+const themeQuery=window.matchMedia('(prefers-color-scheme: dark)');
+const isDark=()=>themeQuery.matches;
+function modelColor(){return colorIndex===0?(isDark()?0xe8e8ed:0x202024):colors[colorIndex]}
+function recolorModel(){if(!mesh)return;mesh.traverse(o=>{if((o.isMesh||o.isLine)&&o.material){for(const m of Array.isArray(o.material)?o.material:[o.material])m.color?.setHex(modelColor())}})}
+function updateTheme(){scene.background.setHex(isDark()?0x000000:0xffffff);recolorModel();if(vectorGrid)vectorGrid.material.color.setHex(isDark()?0x54545b:0xbdbdc4)}
+if(themeQuery.addEventListener)themeQuery.addEventListener('change',updateTheme);else themeQuery.addListener(updateTheme);
+function updateVectorGrid(){
+ if(vectorGrid){scene.remove(vectorGrid);vectorGrid.geometry.dispose();vectorGrid.material.dispose();vectorGrid=null}
+ if(!mesh||!isDXF||!(mesh.userData.lightburn||mesh.userData.svg))return;
+ const b=new THREE.Box3().setFromObject(mesh),size=b.getSize(new THREE.Vector3()),center=b.getCenter(new THREE.Vector3());
+ // Each interval is exactly 10 document units (10 mm for LightBurn).
+ const span=Math.max(100,Math.ceil((Math.max(size.x,size.z)+80)/20)*20);
+ const divisions=Math.ceil(span/10),actual=divisions*10;
+ vectorGrid=new THREE.GridHelper(actual,divisions,0x999999,0x999999);
+ vectorGrid.position.set(Math.round(center.x/10)*10,b.min.y-.035,Math.round(center.z/10)*10);
+ vectorGrid.material.transparent=true;vectorGrid.material.opacity=isDark()?.42:.55;
+ vectorGrid.material.depthWrite=false;vectorGrid.material.color.setHex(isDark()?0x54545b:0xbdbdc4);
+ scene.add(vectorGrid);vectorGrid.visible=$('gridBtn').classList.contains('active');
+}
 // Placa de impresión inspirada en la Bambu Lab A1 Mini (180 × 180 mm).
 const BED=180;
 function makeGrid(){
@@ -119,7 +152,7 @@ function makeGrid(){
  grid.add(new THREE.LineSegments(markGeo,new THREE.LineBasicMaterial({color:0xc2c9cd,transparent:true,opacity:.65})));
  scene.add(grid);grid.visible=$('gridBtn').classList.contains('active');
 }
-makeGrid();
+makeGrid();updateTheme();
 function toast(s){$('toast').textContent=s;$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',2800)}
 function fit(){if(!mesh)return;const box=new THREE.Box3().setFromObject(mesh),center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3());const radius=Math.max(size.length()*.5,BED*.72);const dist=radius/Math.sin(THREE.MathUtils.degToRad(camera.fov*.5))*1.45;controls.target.set(0,Math.max(10,center.y*.6),0);camera.position.copy(controls.target).add(new THREE.Vector3(dist*.7,dist*.55,dist*.8));camera.near=Math.max(.001,dist/10000);camera.far=Math.max(1000,dist*100);camera.updateProjectionMatrix();controls.minDistance=Math.max(.001,radius*.08);controls.maxDistance=dist*25;controls.update()}
 
@@ -189,7 +222,7 @@ function svgGroup(text){
   for(const sub of path.subPaths){
    const points=sub.getPoints(Math.max(48,Math.min(256,sub.curves.length*16)));
    if(points.length<2)continue;
-   const pts=points.map(p=>new THREE.Vector3(p.x,-p.y,0));
+   const pts=points.map(p=>new THREE.Vector3(p.x,p.y,0));
    if(sub.autoClose&&pts[0].distanceTo(pts[pts.length-1])>1e-8)pts.push(pts[0].clone());
    group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),material));count++;
   }
@@ -198,10 +231,196 @@ function svgGroup(text){
  group.userData.svg=true;
  return group;
 }
+// Lector LightBurn: rutas Bézier, segmentos y transformaciones de grupos.
+function lightburnGroup(text){
+ const xml=new DOMParser().parseFromString(text,'application/xml');
+ if(xml.querySelector('parsererror'))throw Error('XML LightBurn inválido');
+ const root=xml.documentElement;
+ if(!/lightburnproject/i.test(root.tagName))throw Error('Proyecto LightBurn no compatible');
+ const group=new THREE.Group(), mat=new THREE.LineBasicMaterial({color:colors[colorIndex]});
+ const number=String.raw`[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?`;
+ const nr=new RegExp(number,'g');
+ const nums=s=>(s||'').match(nr)?.map(Number)||[];
+ const identity=[1,0,0,1,0,0];let count=0,skipped=0;
+ // LightBurn guarda geometría una sola vez y otras figuras la reutilizan por VertID/PrimID.
+ // Recolectar primero TODAS las definiciones, incluso si se declaran después de una instancia.
+ const vertexDefs=new Map(),primitiveDefs=new Map();
+ for(const shape of xml.querySelectorAll('Shape[Type="Path"]')){
+  const vi=shape.getAttribute('VertID'),pi=shape.getAttribute('PrimID');
+  const vert=Array.from(shape.children).find(e=>e.tagName==='VertList');
+  const prim=Array.from(shape.children).find(e=>e.tagName==='PrimList');
+  if(vi!==null&&vert?.textContent?.trim())vertexDefs.set(vi,vert.textContent);
+  if(pi!==null&&prim?.textContent?.trim())primitiveDefs.set(pi,prim.textContent);
+ }
+ 
+ function mul(a,b){return [a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]]}
+ function apply(m,p){return {x:m[0]*p.x+m[2]*p.y+m[4],y:m[1]*p.x+m[3]*p.y+m[5]}}
+ function child(node,tag){return Array.from(node.children).find(c=>c.tagName===tag)}
+ function add(points){if(points.length<2)return;const out=[];for(const p of points){if(Number.isFinite(p.x)&&Number.isFinite(p.y))out.push(new THREE.Vector3(p.x,p.y,0))}if(out.length<2)return;group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(out),mat));count++}
+ function parseVertices(raw){
+  const vertices=[];
+  for(const chunk of (raw||'').split('V').slice(1)){
+   const head=chunk.split(/c[01][xy]/)[0],v=nums(head);if(v.length<2)continue;
+   const obj={x:v[0],y:v[1]};
+   for(const key of ['c0x','c0y','c1x','c1y']){
+    const match=chunk.match(new RegExp(key+'('+number+')'));
+    if(match){const val=Number(match[1]);if(val!==1)obj[key]=val;}
+   }
+   vertices.push(obj);
+  }
+  return vertices;
+ }
+ function walk(node,parent){
+  if(node.tagName==='Shape'){
+   const xf=nums(child(node,'XForm')?.textContent);const m=mul(parent,xf.length===6?xf:identity);
+   const type=node.getAttribute('Type')||'';
+   if(type==='Path'){
+    const ownVert=child(node,'VertList')?.textContent;
+    const ownPrim=child(node,'PrimList')?.textContent;
+    const rawVert=ownVert?.trim()?ownVert:vertexDefs.get(node.getAttribute('VertID'));
+    const v=parseVertices(rawVert);
+    const prim=ownPrim?.trim()?ownPrim:(primitiveDefs.get(node.getAttribute('PrimID'))||'');
+    let commands=[...prim.matchAll(/([BL])\s*(\d+)\s+(\d+)(?=[BL]|$)/g)];
+    // LineClosed is a polyline, NOT a Bézier path. Dense traced logos
+    // can contain hundreds of vertices; treating them as cubic curves
+    // creates the long spikes visible in Logos PS.
+    if(!commands.length && /^LineClosed$/i.test(prim.trim()) && v.length>1){
+      commands=v.map((_,i)=>[null,'L',String(i),String((i+1)%v.length)]);
+    }
+    // Algunos trazados de LightBurn omiten PrimList: sus vértices forman una curva cerrada.
+    if(!commands.length && v.length>1){commands=v.map((_,i)=>['B',String(i),String((i+1)%v.length)]).map(c=>[null,...c]);}
+    if(v.length&&commands.length){
+     const pts=[];
+     for(const cmd of commands){const i=+cmd[2],j=+cmd[3];if(!v[i]||!v[j])continue;
+      const a=v[i],d=v[j];
+      // PrimList puede contener subtrazos desconectados. No unirlos artificialmente.
+      if(!pts.length)pts.push(apply(m,a));
+      else if(Math.hypot(pts[pts.length-1].x-apply(m,a).x,pts[pts.length-1].y-apply(m,a).y)>0.00001){
+       add(pts.splice(0));pts.push(apply(m,a));
+      }
+      if(cmd[1]==='L'){pts.push(apply(m,d));continue}
+      // LightBurn: c0 es control de salida y c1 es control de entrada.
+      const b={x:a.c0x??a.x,y:a.c0y??a.y},c={x:d.c1x??d.x,y:d.c1y??d.y};
+      const length=Math.hypot(d.x-a.x,d.y-a.y)+Math.hypot(b.x-a.x,b.y-a.y)+Math.hypot(d.x-c.x,d.y-c.y);
+      const steps=Math.max(12,Math.min(96,Math.ceil(length/3)));
+      for(let k=1;k<=steps;k++){const t=k/steps,q=1-t;pts.push(apply(m,{x:q*q*q*a.x+3*q*q*t*b.x+3*q*t*t*c.x+t*t*t*d.x,y:q*q*q*a.y+3*q*q*t*b.y+3*q*t*t*c.y+t*t*t*d.y}))}
+     }
+     add(pts);
+    }else skipped++;
+   }else if(type==='Ellipse'){
+    // Las elipses LightBurn son primitivas centradas en el origen local.
+    // Aplicar XForm a cada muestra conserva giros, reflejos y escalados.
+    const rx=Math.abs(Number(node.getAttribute('Rx'))),ry=Math.abs(Number(node.getAttribute('Ry')));
+    if(rx>0&&ry>0&&Number.isFinite(rx+ry)){
+     const n=Math.max(96,Math.min(512,Math.ceil(2*Math.PI*Math.max(rx,ry)/.35)));
+     const pts=[];for(let i=0;i<=n;i++){const a=2*Math.PI*i/n;pts.push(apply(m,{x:rx*Math.cos(a),y:ry*Math.sin(a)}))}add(pts);
+    }else skipped++;
+   }else if(type==='Rect'){
+    const w=Math.abs(Number(node.getAttribute('W'))),h=Math.abs(Number(node.getAttribute('H')));
+    const cr=Math.max(0,Math.min(w/2,h/2,Number(node.getAttribute('Cr'))||0));
+    if(w>0&&h>0&&Number.isFinite(w+h)){
+     const pts=[];
+     if(!cr){for(const [x,y] of [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2],[-w/2,-h/2]])pts.push(apply(m,{x,y}));}
+     else {for(const [cx,cy,start] of [[w/2-cr,-h/2+cr,-Math.PI/2],[w/2-cr,h/2-cr,0],[-w/2+cr,h/2-cr,Math.PI/2],[-w/2+cr,-h/2+cr,Math.PI]]){
+      for(let i=0;i<=24;i++){const a=start+i*Math.PI/48;pts.push(apply(m,{x:cx+cr*Math.cos(a),y:cy+cr*Math.sin(a)}))}
+     }pts.push(pts[0]);}
+     add(pts);
+    }else skipped++;
+   }else if(type!=='Group')skipped++;
+   const children=child(node,'Children');if(children)for(const c of children.children)walk(c,m);
+   return;
+  }
+  for(const c of node.children)walk(c,parent);
+ }
+ walk(root,identity);
+ if(!count)throw Error('No se encontraron rutas LightBurn compatibles');
+ group.userData.lightburn=true;group.userData.lightburnSkipped=skipped;group.userData.lightburnPaths=count;
+ return group;
+}
+
+// Fallback for 3MF files whose resources contain component references
+// that ThreeMFLoader cannot resolve.
+async function parse3MFFallback(buffer){
+ const {default:JSZip}=await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
+ const zip=await JSZip.loadAsync(buffer);
+ const modelFiles=Object.keys(zip.files).filter(p=>/\.model$/i.test(p)&&!zip.files[p].dir);
+ if(!modelFiles.length)throw Error('El 3MF no contiene modelos');
+ const models=new Map();
+ function children(el,name){return Array.from(el?.children||[]).filter(n=>n.localName===name)}
+ function matrix(raw){
+  const a=(raw||'').trim().split(/\s+/).map(Number);
+  const m=new THREE.Matrix4();
+  // 3MF stores a 3x4 affine transform by columns, with translation at indices 9..11.
+  if(a.length===12&&a.every(Number.isFinite))m.set(a[0],a[3],a[6],a[9],a[1],a[4],a[7],a[10],a[2],a[5],a[8],a[11],0,0,0,1);
+  return m;
+ }
+ function normalizePath(path){return '/'+String(path||'').replace(/^\/+/, '');}
+ for(const path of modelFiles){
+  const xml=new DOMParser().parseFromString(await zip.files[path].async('text'),'application/xml');
+  if(xml.querySelector('parsererror'))continue;
+  const model=xml.documentElement;
+  const resources=children(model,'resources')[0],build=children(model,'build')[0];
+  if(!resources)continue;
+  models.set(normalizePath(path),{objects:new Map(children(resources,'object').map(o=>[o.getAttribute('id'),o])),build});
+ }
+ function construct(path,id,visited=new Set()){
+  path=normalizePath(path);
+  const key=path+'#'+id;
+  if(visited.has(key)||visited.size>64)return null;
+  const entry=models.get(path),def=entry?.objects.get(String(id));
+  if(!def)return null;
+  const seen=new Set(visited);seen.add(key);
+  const group=new THREE.Group(),meshEl=children(def,'mesh')[0];
+  if(meshEl){
+   const vertsEl=children(meshEl,'vertices')[0],trisEl=children(meshEl,'triangles')[0];
+   if(vertsEl&&trisEl){
+    const verts=children(vertsEl,'vertex').map(v=>[Number(v.getAttribute('x')),Number(v.getAttribute('y')),Number(v.getAttribute('z'))]);
+    const positions=[];
+    for(const t of children(trisEl,'triangle')){
+     const ids=['v1','v2','v3'].map(k=>Number(t.getAttribute(k)));
+     if(ids.every(i=>Number.isInteger(i)&&verts[i]?.every(Number.isFinite)))for(const i of ids)positions.push(...verts[i]);
+    }
+    if(positions.length){
+     const geo=new THREE.BufferGeometry();
+     geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geo.computeVertexNormals();
+     group.add(new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:colors[colorIndex],metalness:.12,roughness:.65,side:THREE.DoubleSide})));
+    }
+   }
+  }
+  const components=children(def,'components')[0];
+  for(const c of children(components,'component')){
+   const external=c.getAttribute('p:path')||c.getAttributeNS('http://schemas.microsoft.com/3dmanufacturing/production/2015/06','path');
+   const part=construct(external||path,c.getAttribute('objectid'),seen);
+   if(part){part.applyMatrix4(matrix(c.getAttribute('transform')));group.add(part)}
+  }
+  return group.children.length?group:null;
+ }
+ const result=new THREE.Group();
+ // The package entrypoint is the root model, not each individual component model.
+ const root=models.get('/3D/3dmodel.model')||Array.from(models.values()).find(x=>children(x.build,'item').length);
+ const rootPath=models.has('/3D/3dmodel.model')?'/3D/3dmodel.model':Array.from(models.keys()).find(k=>models.get(k)===root);
+ if(root)for(const item of children(root.build,'item')){
+  const part=construct(rootPath,item.getAttribute('objectid'));
+  if(part){part.applyMatrix4(matrix(item.getAttribute('transform')));result.add(part)}
+ }
+ if(!result.children.length)throw Error('No se pudo interpretar la geometría del 3MF');
+ return result;
+}
 async function convertFile(file,buffer){
  const ext=file.name.split('.').pop().toLowerCase();
  if(ext==='stl'){const geo=new STLLoader().parse(buffer);if(!geo.attributes.position?.count)throw Error('STL sin triángulos');if(!geo.attributes.normal)geo.computeVertexNormals();return new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:colors[colorIndex],metalness:.12,roughness:.62,side:THREE.DoubleSide}))}
- if(ext==='3mf'){const loader=new ThreeMFLoader();return loader.parse(buffer)}
+ if(ext==='3mf'){
+   try{
+    const loader=new ThreeMFLoader();
+    const loaded=loader.parse(buffer);
+    if(!loaded?.children?.length)throw Error('Geometría 3MF vacía');
+    return loaded;
+   }catch(error){
+    console.warn('Lector 3MF estándar falló; intentando lector alternativo:',error);
+    return await parse3MFFallback(buffer);
+   }
+  }
+ if(ext==='lbrn2'||ext==='lbrn'){return lightburnGroup(new TextDecoder().decode(buffer))}
  if(ext==='svg'){return svgGroup(new TextDecoder().decode(buffer))}
  if(ext==='dxf'){const mod=await import('https://esm.sh/dxf-parser@1.1.2');const Parser=mod.default?.default||mod.default||mod.DxfParser;const doc=new Parser().parseSync(new TextDecoder().decode(buffer));return dxfGroup(doc)}
  if(ext==='step'||ext==='stp'){
@@ -233,11 +452,39 @@ async function convertFile(file,buffer){
  }
  throw Error('Formato no compatible')
 }
-function fitDXF(){if(!mesh)return;const b=new THREE.Box3().setFromObject(mesh),c=b.getCenter(new THREE.Vector3()),sz=b.getSize(new THREE.Vector3());const span=Math.max(sz.x,sz.z,1);controls.target.copy(c);camera.up.set(0,0,-1);camera.position.copy(c).add(new THREE.Vector3(0,Math.max(10,span*1.8),.00001));camera.near=.001;camera.far=Math.max(1000,span*100);camera.updateProjectionMatrix();controls.update()}
+function setViewMode(flat){
+ activeCamera=flat?camera2D:camera;
+ controls.object=activeCamera;
+ controls.enableRotate=!flat;
+ controls.enablePan=true;
+ controls.enableZoom=true;
+ controls.minZoom=.005;
+ controls.maxZoom=10000;
+ controls.enableDamping=true;
+ if(!flat)camera.up.set(0,1,0);
+ controls.update();
+}
+function fitDXF(){
+ if(!mesh)return;
+ const b=new THREE.Box3().setFromObject(mesh),c=b.getCenter(new THREE.Vector3()),sz=b.getSize(new THREE.Vector3());
+ const aspect=innerWidth/innerHeight;
+ const w=Math.max(sz.x,1)*1.18,h=Math.max(sz.z,1)*1.18;
+ const halfHeight=Math.max(h,w/aspect)/2;
+ camera2D.left=-halfHeight*aspect;camera2D.right=halfHeight*aspect;
+ camera2D.top=halfHeight;camera2D.bottom=-halfHeight;
+ camera2D.zoom=1;
+ camera2D.position.set(c.x,c.y+Math.max(100,sz.length()*2),c.z);
+ camera2D.up.set(0,0,-1);
+ camera2D.lookAt(c);
+ camera2D.near=.01;camera2D.far=Math.max(1000,sz.length()*10);
+ camera2D.updateProjectionMatrix();
+ controls.target.copy(c);
+ controls.update();
+}
 async function load(file){
  if(!file)return;
- isDXF=/\.(dxf|svg)$/i.test(file.name);
- if(!/\.(stl|3mf|step|stp|dxf|svg)$/i.test(file.name)){toast('Selecciona STL, 3MF, STEP, STP, DXF o SVG');return}
+ isDXF=/\.(dxf|svg|lbrn|lbrn2)$/i.test(file.name);
+ if(!/\.(stl|3mf|step|stp|dxf|svg|lbrn|lbrn2)$/i.test(file.name)){toast('Selecciona STL, 3MF, STEP, STP, DXF, SVG, LBRN o LBRN2');return}
  $('subtitle').textContent='Abriendo modelo…';
  try{
   const buffer=await file.arrayBuffer();
@@ -248,6 +495,10 @@ async function load(file){
   // Los formatos CAD/impresión usan normalmente Z como eje vertical.
   // Convertimos Z hacia arriba en la escena y apoyamos la base sobre la placa.
   model.rotation.x=-Math.PI/2;
+  // SVG uses a top-left origin with Y increasing downwards.
+  // Flip only SVG's local Y axis so the 2D top view matches the source.
+  // Keep LightBurn, DXF and all 3D model transforms unchanged.
+  if(/\.svg$/i.test(file.name))model.scale.y=-1;
   model.updateMatrixWorld(true);
   const uprightBox=new THREE.Box3().setFromObject(model);
   const uprightCenter=uprightBox.getCenter(new THREE.Vector3());
@@ -256,21 +507,21 @@ async function load(file){
   model.position.y-=uprightBox.min.y;
   model.updateMatrixWorld(true);
   if(mesh){scene.remove(mesh);mesh.traverse(o=>{o.geometry?.dispose();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose())}})}
-  mesh=model;scene.add(mesh);modelSize=Math.max(size.x,size.y,size.z,1);makeGrid();
+  mesh=model;scene.add(mesh);setViewMode(isDXF);modelSize=Math.max(size.x,size.y,size.z,1);makeGrid();updateVectorGrid();updateTheme();
   const fmt=n=>n.toLocaleString('es-MX',{maximumFractionDigits:2})+' mm';
   $('x').textContent=fmt(size.x);$('y').textContent=fmt(size.y);$('z').textContent=fmt(size.z);
   $('filename').textContent=file.name;
-  $('subtitle').textContent=file.name.split('.').pop().toUpperCase()+(file.name.toLowerCase().endsWith('.svg')?' · unidades del documento':' · unidades asumidas: mm');
-  $('empty').style.display='none';sectionOn=false;$('sectionBtn').classList.remove('active');$('sectionBtn').textContent='Activar corte';$('sectionRange').disabled=true;$('sectionRange').value=100;clearMeasurement();updateBounds();if(isDXF){grid.visible=false;$('fitStatus').textContent=file.name.toLowerCase().endsWith('.svg')?'SVG · unidades según coordenadas del archivo':'DXF · unidades asumidas: mm';$('fitStatus').className='fitstatus';fitDXF();}else fit();toast(model.userData.dxfWarnings?.length?'DXF cargado parcialmente; algunas entidades no son compatibles':'Archivo cargado');
+  $('subtitle').textContent=file.name.split('.').pop().toUpperCase()+((/\.(svg|lbrn2?|lbrn)$/i.test(file.name))?' · unidades del documento':' · unidades asumidas: mm');
+  $('empty').style.display='none';sectionOn=false;$('sectionBtn').classList.remove('active');$('sectionBtn').textContent='Activar corte';$('sectionRange').disabled=true;$('sectionRange').value=100;clearMeasurement();updateBounds();if(isDXF){grid.visible=false;if(vectorGrid)vectorGrid.visible=$('gridBtn').classList.contains('active');$('fitStatus').textContent=model.userData.lightburn?'LightBurn · rutas y detalles':file.name.toLowerCase().endsWith('.svg')?'SVG · unidades según coordenadas del archivo':'DXF · unidades asumidas: mm';$('fitStatus').className='fitstatus';fitDXF();}else fit();toast(model.userData.lightburn?(model.userData.lightburnSkipped?'LightBurn: '+model.userData.lightburnSkipped+' elementos no interpretados':'LightBurn cargado: comprueba los detalles'):model.userData.dxfWarnings?.length?'DXF cargado parcialmente; algunas entidades no son compatibles':'Archivo cargado');
  }catch(e){console.error(e);toast('Error: '+e.message);$('subtitle').textContent='Error: '+e.message}
 }
 
 $('openBtn').onclick=()=>$('file').click();$('file').onchange=e=>{load(e.target.files[0]);e.target.value=''};
 $('fitBtn').onclick=()=>isDXF?fitDXF():fit();$('resetBtn').onclick=()=>isDXF?fitDXF():fit();
-function zoom(f){if(!mesh)return;const dir=camera.position.clone().sub(controls.target).multiplyScalar(f);camera.position.copy(controls.target).add(dir);controls.update()}
+function zoom(f){if(!mesh)return;if(isDXF){camera2D.zoom=Math.min(10000,Math.max(.005,camera2D.zoom/f));camera2D.updateProjectionMatrix()}else{const dir=camera.position.clone().sub(controls.target).multiplyScalar(f);camera.position.copy(controls.target).add(dir)}controls.update()}
 $('plusBtn').onclick=()=>zoom(.75);$('minusBtn').onclick=()=>zoom(1.35);
-$('gridBtn').onclick=()=>{$('gridBtn').classList.toggle('active');grid.visible=!isDXF&&$('gridBtn').classList.contains('active')};
-$('colorBtn').onclick=()=>{colorIndex=(colorIndex+1)%colors.length;if(mesh)mesh.traverse(o=>{if(o.isMesh&&o.material){for(const m of Array.isArray(o.material)?o.material:[o.material])m.color?.setHex(colors[colorIndex])}else if(o.isLine)o.material.color.setHex(colors[colorIndex])})};
+$('gridBtn').onclick=()=>{$('gridBtn').classList.toggle('active');grid.visible=!isDXF&&$('gridBtn').classList.contains('active');if(vectorGrid)vectorGrid.visible=isDXF&&$('gridBtn').classList.contains('active')};
+$('colorBtn').onclick=()=>{colorIndex=(colorIndex+1)%colors.length;recolorModel()};
 // Herramientas avanzadas, aisladas del lector de archivos.
 $('toolsBtn').onclick=()=>{$('tools').classList.toggle('show');$('toolsBtn').classList.toggle('active')};
 document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>{
@@ -284,10 +535,10 @@ $('measureBtn').addEventListener('click',()=>setTimeout(closeToolPanel,0));
 function bounds(){return mesh?new THREE.Box3().setFromObject(mesh):null}
 function updateBounds(){if(!mesh)return;const b=bounds(),v=b.getSize(new THREE.Vector3()),fmt=n=>n.toLocaleString('es-MX',{maximumFractionDigits:2})+' mm';$('x').textContent=fmt(v.x);$('y').textContent=fmt(v.y);$('z').textContent=fmt(v.z);const ok=v.x<=180.0001&&v.y<=180.0001&&v.z<=180.0001;$('fitStatus').textContent=ok?'✓ Cabe en el volumen 180 × 180 × 180 mm':'⚠ Excede el volumen de impresión de la A1 Mini';$('fitStatus').className='fitstatus '+(ok?'good':'bad');updateSection()}
 function settleOnBed(){if(!mesh)return;mesh.updateMatrixWorld(true);let b=bounds(),c=b.getCenter(new THREE.Vector3());mesh.position.x-=c.x;mesh.position.z-=c.z;mesh.position.y-=b.min.y;mesh.updateMatrixWorld(true);updateBounds()}
-function look(direction){if(!mesh)return;const b=bounds(),c=b.getCenter(new THREE.Vector3()),radius=Math.max(b.getSize(new THREE.Vector3()).length(),220);controls.target.copy(c);camera.position.copy(c).addScaledVector(direction.clone().normalize(),radius*1.7);camera.up.set(0,1,0);if(Math.abs(direction.y)>.9)camera.up.set(0,0,-1);camera.lookAt(c);controls.update()}
+function look(direction){if(!mesh)return;if(isDXF){fitDXF();return;}const b=bounds(),c=b.getCenter(new THREE.Vector3()),radius=Math.max(b.getSize(new THREE.Vector3()).length(),220);controls.target.copy(c);camera.position.copy(c).addScaledVector(direction.clone().normalize(),radius*1.7);camera.up.set(0,1,0);if(Math.abs(direction.y)>.9)camera.up.set(0,0,-1);camera.lookAt(c);controls.update()}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{if(!mesh)return;const dirs={iso:new THREE.Vector3(1,1,1),top:new THREE.Vector3(0,1,.00001),front:new THREE.Vector3(0,.00001,1),side:new THREE.Vector3(1,.00001,0)};look(dirs[b.dataset.view])});
-document.querySelectorAll('[data-rotate]').forEach(b=>b.onclick=()=>{if(!mesh)return;mesh.rotateOnWorldAxis(new THREE.Vector3(...({x:[1,0,0],y:[0,1,0],z:[0,0,1]})[b.dataset.rotate]),Math.PI/2);settleOnBed();clearMeasurement()});
-$('orientReset').onclick=()=>{if(!mesh)return;mesh.rotation.set(-Math.PI/2,0,0);settleOnBed();clearMeasurement();fit()};
+document.querySelectorAll('[data-rotate]').forEach(b=>b.onclick=()=>{if(!mesh||isDXF)return;mesh.rotateOnWorldAxis(new THREE.Vector3(...({x:[1,0,0],y:[0,1,0],z:[0,0,1]})[b.dataset.rotate]),Math.PI/2);settleOnBed();clearMeasurement()});
+$('orientReset').onclick=()=>{if(!mesh)return;if(isDXF){fitDXF();return;}mesh.rotation.set(-Math.PI/2,0,0);settleOnBed();clearMeasurement();fit()};
 function allMeshes(){const a=[];mesh?.traverse(o=>{if(o.isMesh)a.push(o)});return a}
 function updateSection(){if(!mesh)return;const b=bounds(),height=b.max.y-b.min.y,cut=b.min.y+height*Number($('sectionRange').value)/100;sectionPlane.constant=cut;for(const m of allMeshes()){const mats=Array.isArray(m.material)?m.material:[m.material];for(const mat of mats){mat.clippingPlanes=sectionOn?[sectionPlane]:[];mat.clipShadows=sectionOn;mat.needsUpdate=true}}$('sectionInfo').textContent=sectionOn?'Altura visible: '+(cut-b.min.y).toFixed(2)+' mm':'Corte desactivado'}
 $('sectionBtn').onclick=()=>{if(!mesh)return;sectionOn=!sectionOn;$('sectionBtn').classList.toggle('active',sectionOn);$('sectionBtn').textContent=sectionOn?'Desactivar corte':'Activar corte';$('sectionRange').disabled=!sectionOn;updateSection()};
@@ -295,11 +546,11 @@ $('sectionRange').oninput=updateSection;
 function clearMeasurement(){measurePoints=[];for(const marker of measureMarkers){scene.remove(marker);marker.geometry.dispose();marker.material.dispose()}measureMarkers=[];if(measureLine){scene.remove(measureLine);measureLine.geometry.dispose();measureLine.material.dispose();measureLine=null}$('measureInfo').textContent='Toca dos puntos sobre el modelo'}
 $('clearMeasure').onclick=clearMeasurement;
 $('measureBtn').onclick=()=>{measuring=!measuring;$('measureBtn').classList.toggle('active',measuring);$('measureBtn').textContent=measuring?'Terminar medición':'Medir';controls.enabled=!measuring;if(measuring)clearMeasurement()};
-renderer.domElement.addEventListener('pointerup',e=>{if(!measuring||!mesh||e.pointerType==='touch'&&!e.isPrimary)return;const rect=renderer.domElement.getBoundingClientRect();pointer.set(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);raycaster.setFromCamera(pointer,camera);raycaster.params.Line.threshold=Math.max(.3,modelSize*.006);const targets=[];mesh.traverse(o=>{if(o.isMesh||o.isLine)targets.push(o)});const hits=raycaster.intersectObjects(targets,false);if(!hits.length)return;if(measurePoints.length===2)clearMeasurement();const pt=hits[0].point.clone();measurePoints.push(pt);const r=Math.max(.5,modelSize*.008);const marker=new THREE.Mesh(new THREE.SphereGeometry(r,12,8),new THREE.MeshBasicMaterial({color:0xffb84c,depthTest:false}));marker.position.copy(pt);marker.renderOrder=10;scene.add(marker);measureMarkers.push(marker);if(measurePoints.length===2){const distance=measurePoints[0].distanceTo(measurePoints[1]);measureLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(measurePoints),new THREE.LineBasicMaterial({color:0xffb84c,depthTest:false}));measureLine.renderOrder=10;scene.add(measureLine);$('measureInfo').textContent='Distancia: '+distance.toFixed(3)+' mm'}else $('measureInfo').textContent='Selecciona el segundo punto'});
-$('shotBtn').onclick=()=>{if(!mesh){toast('Primero abre un modelo');return}renderer.render(scene,camera);renderer.domElement.toBlob(blob=>{if(!blob){toast('No se pudo crear la imagen');return}const f=new File([blob],'modelo-3d.png',{type:'image/png'});if(navigator.canShare?.({files:[f]})){navigator.share({files:[f]}).catch(()=>{})}else{const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='modelo-3d.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}},'image/png')};
+renderer.domElement.addEventListener('pointerup',e=>{if(!measuring||!mesh||e.pointerType==='touch'&&!e.isPrimary)return;const rect=renderer.domElement.getBoundingClientRect();pointer.set(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);raycaster.setFromCamera(pointer,activeCamera);raycaster.params.Line.threshold=Math.max(.3,modelSize*.006);const targets=[];mesh.traverse(o=>{if(o.isMesh||o.isLine)targets.push(o)});const hits=raycaster.intersectObjects(targets,false);if(!hits.length)return;if(measurePoints.length===2)clearMeasurement();const pt=hits[0].point.clone();measurePoints.push(pt);const r=Math.max(.5,modelSize*.008);const marker=new THREE.Mesh(new THREE.SphereGeometry(r,12,8),new THREE.MeshBasicMaterial({color:0xffb84c,depthTest:false}));marker.position.copy(pt);marker.renderOrder=10;scene.add(marker);measureMarkers.push(marker);if(measurePoints.length===2){const distance=measurePoints[0].distanceTo(measurePoints[1]);measureLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(measurePoints),new THREE.LineBasicMaterial({color:0xffb84c,depthTest:false}));measureLine.renderOrder=10;scene.add(measureLine);$('measureInfo').textContent='Distancia: '+distance.toFixed(3)+' mm'}else $('measureInfo').textContent='Selecciona el segundo punto'});
+$('shotBtn').onclick=()=>{if(!mesh){toast('Primero abre un modelo');return}renderer.render(scene,activeCamera);renderer.domElement.toBlob(blob=>{if(!blob){toast('No se pudo crear la imagen');return}const f=new File([blob],'modelo-3d.png',{type:'image/png'});if(navigator.canShare?.({files:[f]})){navigator.share({files:[f]}).catch(()=>{})}else{const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='modelo-3d.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}},'image/png')};
 let drag=0;window.addEventListener('dragenter',e=>{e.preventDefault();drag++;$('drop').classList.add('show')});window.addEventListener('dragleave',e=>{e.preventDefault();drag=Math.max(0,drag-1);if(!drag)$('drop').classList.remove('show')});window.addEventListener('dragover',e=>e.preventDefault());window.addEventListener('drop',e=>{e.preventDefault();drag=0;$('drop').classList.remove('show');load(e.dataTransfer.files[0])});
-window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();if(isDXF&&mesh){const height=camera2D.top-camera2D.bottom;const aspect=innerWidth/innerHeight;camera2D.left=-height*aspect/2;camera2D.right=height*aspect/2;camera2D.updateProjectionMatrix()}renderer.setSize(innerWidth,innerHeight)});
+renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,activeCamera)});
 </script>
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./service-worker.js").catch(console.warn))}</script>
 </body></html>
